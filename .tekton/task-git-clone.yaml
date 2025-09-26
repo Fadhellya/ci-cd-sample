@@ -1,0 +1,36 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+spec:
+  description: Task ini bertugas untuk melakukan 'git clone' dari sebuah repositori.
+  params:
+    - name: url
+      type: string
+      description: URL Repositori untuk di-clone.
+    - name: revision
+      type: string
+      description: Revisi yang akan di-checkout (branch, tag, commit).
+      default: ""
+  workspaces:
+    - name: output
+      description: Repositori git akan di-clone ke dalam workspace ini.
+  steps:
+    - name: clone
+      # Menggunakan image RHEL9 yang lebih baru. Pastikan image ini sudah
+      # dicerminkan (mirrored) ke registry internal Anda.
+      image: "registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel9@sha256:39eb71a9d59951659d27ada3789309c89ef13f89e60666fc4e4b4cf62894a4ad"
+      # Menjalankan step ini sebagai user root (UID 0) untuk memastikan
+      # ia memiliki izin untuk menulis ke volume workspace.
+      securityContext:
+        runAsUser: 0
+      script: |
+        # Memberikan izin tulis ke semua user pada direktori workspace
+        # sebagai lapisan keamanan tambahan.
+        chmod -R 777 "$(workspaces.output.path)"
+
+        # Path binary di image RHEL9 berbeda.
+        /ko-app/git-init \
+          -url="$(params.url)" \
+          -revision="$(params.revision)" \
+          -path="$(workspaces.output.path)"

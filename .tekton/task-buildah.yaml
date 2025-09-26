@@ -1,0 +1,42 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: buildah
+spec:
+  description: Buildah task membangun sebuah OCI-compliant container image dan mendorongnya ke registry eksternal.
+  params:
+    - name: IMAGE
+      type: string
+    - name: TLSVERIFY
+      type: string
+      default: "true"
+  workspaces:
+    - name: source
+    - name: docker-credentials
+      optional: true
+      mountPath: /tekton/home/.docker
+  steps:
+    - name: build-and-push
+      image: "quay.io/buildah/stable:v1.23.1"
+      workingDir: $(workspaces.source.path)
+      # KUNCI PERBAIKAN: Menggunakan 'privileged: true' untuk memberikan
+      # izin penuh yang dibutuhkan buildah untuk menulis ke /proc.
+      securityContext:
+        privileged: true
+      script: |
+        # Membangun image seperti biasa
+        buildah bud --tls-verify=$(params.TLSVERIFY) -t $(params.IMAGE) .
+
+        # Secara eksplisit memberitahu buildah di mana harus mencari file kredensial.
+        # Path ini menunjuk ke file .dockerconfigjson di dalam secret yang sudah di-mount.
+        buildah push \
+          --authfile $(workspaces.docker-credentials.path)/.dockerconfigjson \
+          --tls-verify=$(params.TLSVERIFY) \
+          $(params.IMAGE) \
+          docker://$(params.IMAGE)
+      volumeMounts:
+        - name: varlibcontainers
+          mountPath: /var/lib/containers
+  volumes:
+    - name: varlibcontainers
+      emptyDir: {}

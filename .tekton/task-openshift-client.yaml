@@ -1,0 +1,21 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: openshift-client
+spec:
+  description: Task ini memungkinkan eksekusi perintah 'oc'.
+  params:
+    - name: SCRIPT
+      type: string
+      description: Perintah oc yang akan dieksekusi.
+      default: "oc help"
+  workspaces:
+    - name: source
+      description: Workspace yang berisi kode sumber.
+  steps:
+    - name: run-oc
+      image: "image-registry.openshift-image-registry.svc:5000/openshift/cli:latest"
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        $(params.SCRIPT)

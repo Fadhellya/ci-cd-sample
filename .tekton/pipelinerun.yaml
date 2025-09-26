@@ -1,0 +1,92 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: app-test-pr-
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main, master]"
+spec:
+  serviceAccountName: pipeline
+  pipelineSpec:
+    params:
+      - name: git-url
+      - name: git-revision
+      - name: image-name-with-revision
+      # Mengganti imagestream-name dengan deployment-name
+      - name: deployment-name
+    workspaces:
+      - name: shared-workspace
+      - name: docker-credentials
+    tasks:
+      - name: fetch-repository
+        taskRef:
+          name: git-clone
+          kind: Task
+        workspaces:
+          - name: output
+            workspace: shared-workspace
+        params:
+          - name: url
+            value: $(params.git-url)
+          - name: revision
+            value: $(params.git-revision)
+
+      - name: build-image
+        runAfter: [fetch-repository]
+        taskRef:
+          name: buildah
+          kind: Task
+        workspaces:
+          - name: source
+            workspace: shared-workspace
+          - name: docker-credentials
+            workspace: docker-credentials
+        params:
+          - name: IMAGE
+            value: $(params.image-name-with-revision)
+          - name: TLSVERIFY
+            value: 'false'
+
+      # KUNCI PERBAIKAN: Task ini sekarang benar-benar melakukan deploy
+      - name: deploy-to-openshift
+        runAfter: [build-image]
+        taskRef:
+          name: openshift-client
+          kind: Task
+        workspaces:
+          - name: source
+            workspace: shared-workspace
+        params:
+          - name: SCRIPT
+            value: |
+              echo "Memperbarui deployment $(params.deployment-name) dengan image baru: $(params.image-name-with-revision)"
+              oc set image deployment/$(params.deployment-name) test=$(params.image-name-with-revision) -n $(context.pipelineRun.namespace)
+
+              echo "Menunggu rollout selesai..."
+              oc rollout status deployment/$(params.deployment-name) -n $(context.pipelineRun.namespace) --watch --timeout=60s
+
+  # Parameter level atas yang akan diisi oleh PAC
+  params:
+    - name: git-url
+      value: "{{repo_url}}"
+    - name: git-revision
+      value: "{{revision}}"
+    - name: image-name-with-revision
+      value: "quay.io/2101082050/fadhellya.io:{{revision}}"
+    # KUNCI PERBAIKAN: Memberikan nama deployment 'test' ke pipeline
+    - name: deployment-name
+      value: "test"
+      
+  workspaces:
+    - name: shared-workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    - name: docker-credentials
+      secret:
+        # Disesuaikan dengan nama secret existing Anda
+        secretName: 2101082050-tektonrobot-pull-secret
